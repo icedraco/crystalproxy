@@ -1,0 +1,389 @@
+##[1.0]#######################[icedragon@quickfox.org]##
+# cpm.bodyswap.tcl # CrystalProxy Body Swapping Module #
+########################################################
+# This module will allow two users to swap their body  #
+# with each other... It's purpose? I have absolutely   #
+# no idea! Making this module would help me to burn    #
+# time and get busy with something. Else I'd get that  #
+# awfull feeling again and stuff... *cough* Nevermind. #
+########################################################
+# Requires DataBase module 1.1 or higher (I think)     #
+########################################################
+
+namespace eval ::cpbs {
+	# Variables #
+	variable fuse    {0}   ;# Setting to 0 will prevent updates
+	variable version {1.0} ;# Module version
+
+	# Functions #
+	proc set      {} {}    ;# Set a specific object
+	proc get      {} {}    ;# Get a specific object
+	proc unset    {} {}    ;# Unset the whole variable
+	proc swap     {} {}    ;# Swap bodies
+	proc original {} {}    ;# Check if a user is in his original body
+	proc inRange  {} {}    ;# Check if two users see each other
+	proc mapMatch {} {}    ;# Check if two users are on the same map
+	proc version  {} {}    ;# Return the version number
+	proc cleanup  {} {}    ;# Dispose of all the module residents
+
+	# Namespaces #
+	namespace eval trap {} ;# Trap handlers
+}
+
+###--# set #--###
+proc ::cpbs::set {object user value} {
+	::set object [string tolower $object]
+
+	# Object sanity check #
+	if {![regexp {^(original|current|ask|by)$} $object]} {
+		error {::cpbs::set -- the object must be one of: original, current, ask, by}
+		return
+	}
+
+	# Initializing everything #
+	::set original [get original $user]
+	::set current  [get current  $user]
+	::set ask      [get ask      $user]
+	::set by       [get by       $user]
+
+	# Updating the value #
+	::set $object   $value
+
+	# Storing that stuff #
+	[::set user]::set CPBS [list $original $current $ask $by]
+}
+
+
+###--# get #--###
+proc ::cpbs::get {object user} {
+	::set object [string tolower $object]
+
+	# Object sanity check #
+	if {![regexp {^(original|current|ask|by)$} $object]} {
+		error {::cpbs::set -- the object must be one of: original, current, ask, by}
+		return
+	}
+
+	# Does the var exist? #
+	if {![info exists [::set user]::CPBS]} {
+		[::set user]::set CPBS [list $user $user {} {}]
+	}
+
+	# Retreiving the objects #
+	scan [[::set user]::get CPBS] {%s %s %s %s} original current ask by
+
+	::set $object
+}
+
+
+###--# unset #--###
+proc ::cpbs::unset {user} {
+	# Just unset it! No excuses! #
+	catch {
+		[set user]::unset CPBS
+	}
+}
+
+
+###--# swap #--###
+proc ::cpbs::swap {user1 user2} {
+	# Is it the same person? #
+	if {$user1 == $user2} {
+		return 1 ;# Then what's the point?..
+	}
+
+	# Are they both in their places? #
+	if {![original $user1] || ![original $user2]} {
+		# Are they at least swapped between each other? #
+		if {([get current $user1] != $user2) || ([get current $user2] != $user1)} {
+			return 0 ;# No way in hell!
+		}
+	}
+
+	# Exchanging current values #
+	::set u1c [get current $user1]
+	::set u2c [get current $user2]
+
+	set current $user1 $u2c
+	set current $user2 $u1c
+
+	# Purge any requests from these two #
+	foreach u [::cpdb::list] {
+		if {([get ask $u] == $user1) || ([get ask $u] == $user2)} {
+			set ask $u {}
+		}
+	}
+
+	set ask $user1 {}
+	set by  $user1 {}
+
+	set ask $user2 {}
+	set by  $user2 {}
+
+	# Refreshing cameras #
+	[[set user1]::get fd]::puts C [format {@%s%s} [::furc::convert::itos [lindex [[set user1]::get camera] 0]] [::furc::convert::itos [lindex [[set user1]::get camera] 1]]]
+	[[set user2]::get fd]::puts C [format {@%s%s} [::furc::convert::itos [lindex [[set user2]::get camera] 0]] [::furc::convert::itos [lindex [[set user2]::get camera] 1]]]
+
+	return 1
+}
+
+
+###--# original #--###
+proc ::cpbs::original {user} {
+	if {[get original $user] == [get current $user]} {
+		return 1 ;# He's in place... it seems
+	} else {
+		return 0 ;# It's a fake!
+	}
+}
+
+
+###--# inRange #--###
+proc ::cpbs::inRange {central ranged} {
+	# Are they even on the same map? #
+	if {![mapMatch $central $ranged]} {
+		return 0
+	}
+
+	# Getting coordinates #
+	::set cc [[::set central]::get coord]
+	::set rc [[::set ranged]::get  coord]
+
+	# Splitting them/Converting to 2D #
+	::set cx [expr [lindex $cc 0] + 2 - ([lindex $cc 1] % 2)]
+	::set cy [expr [lindex $cc 1] + 2]
+	::set rx [expr [lindex $rc 0] + 2 - ([lindex $rc 0] % 2)]
+	::set ry [expr [lindex $rc 1] + 2]
+
+	# Checking distance #
+	if {(($rx >= [expr $cx - 8]) && ($rx <= [expr $cx + 8])) && (($ry >= [expr $cy - 9]) && ($ry <= [expr $cy + 9]))} {
+		return 1
+	} else {
+		return 0
+	}
+}
+
+
+###--# mapMatch #--##
+proc ::cpbs::mapMatch {user1 user2} {
+	# Do the patches match? #
+	if {[[::set user1]::get patch] == [[::set user2]::get patch]} {
+		# Is it a public map? #
+		if {([[::set user1]::get patch] == {default}) && ([[::set user1]::get map] == [[::set user2]::get map])} {
+			return 1 ;# Same public map
+		} elseif {[[::set user1]::get patch] != {default}} {
+			return 1 ;# Same dream, perhaps
+		}
+	}
+
+	return 0 ;# They're not on the same map
+}
+
+
+###--# version #--###
+proc ::cpbs::version {} {
+	::set ::cpbs::version
+}
+
+
+###--# cleanup #--###
+proc ::cpbs::cleanup {} {
+	# Reverting any changes #
+	foreach user [::cpdb::list] {
+		::set ret [swap $user [get current $user]]
+		if {!$ret} {
+			# We're in deep trouble! Congratulations #
+			putlog [format {[CPBS] WARNING: Unresolvable pair -- %s (Cur: %s) << >> %s (Cur: %s)} $user [get current $user] [get current $user] [get current [get current $user]]]
+		}
+	}
+
+	# Removing CPBS variables #
+	foreach user [::cpdb::list] {
+		unset $user
+	}
+
+	# Unlinking hooks #
+	trap::unlink
+
+	# Purging the namespace #
+	namespace delete ::cpbs
+}
+
+
+########################################################
+namespace eval ::cpbs::trap {
+	# Traps #
+	proc raw    {} {} ;# Raw client data
+	proc quit   {} {} ;# Any sort of disconnection
+
+	# Functions #
+	proc link   {} {} ;# Link the traps
+	proc unlink {} {} ;# Unlink the traps
+}
+
+###--# raw #--###
+proc ::cpbs::trap::raw {fd data} {
+	# Is it for us? #
+	if {![regexp {^(swap|return|reject)} $data]} {
+		return 0 ;# Nope, continue
+	}
+
+	set user [[set fd]::get user]
+
+	# I'll start with RETURN. Easier #
+	if {[lindex [split $data] 0] == {return}} {
+		# Does he actually have where to return? #
+		if {[::cpbs::original $user]} {
+			# *sigh* #
+			[set fd]::puts C {([S] You are already in your original body}
+			return 3
+		} else {
+			# Yes he does! #
+			set target [::cpbs::get current $user]
+
+			# Are they on the same map? #
+			if {![::cpbs::mapMatch $user $target]} {
+				[[set user]::get fd]::puts C {([S] Dangerous range: your original body is not on the same map!}
+				return 3
+			}
+
+			if {![::cpbs::swap $user $target]} {
+				[[set user]::get fd]::puts C {([S] Malfunction - unable to swap back!}
+				putlog [format {[CPBS] WARNING: Unresolvable pair -- %s (Cur: %s) << >> %s (Cur: %s)} $user [get current $user] [get current $user] [get current [get current $user]]]
+				return 3
+			}
+
+			# Announcing the return #
+			foreach u [list $user $target] {
+				[[set u]::get fd]::puts C {([S] You return to your original body}
+				[[set u]::get fd]::puts C {([S] Warning: Severe desynchronization is to be expected!}
+			}
+		}
+	} elseif {[lindex [split $data] 0] == {reject}} {
+		# Who are we swapping with? #
+		set target [lindex [split $data] 1]
+		if {$target == {}} {
+			# Were we asked to? #
+			if {[set target [::cpbs::get by $user]] == {}} {
+				[set fd]::puts C {([S] Whom would you like to swap with?}
+			}
+			return 3
+
+		} else {
+			# Is it a member? #
+			if {[set target [::cpdb::find $target]] == {}} {
+				[set fd]::puts C {([S] The specific user was not found!}
+			}
+			return 3
+		}
+
+		# Lame question, but still... Does the idiot try to swap with himself? #
+		if {$user == $target} {
+			# ...somebody PLEASE hit him in the face #
+			[set fd]::puts C {([S] Swapping bodies with yourself is pointless}
+			return 3
+		}
+
+		# Is he even in his own body? #
+		if {![::cpbs::original $user] && ($target != [::cpbs::get original $user])} {
+			# *sigh* #
+			[set fd]::puts C {([S] You are not allowed to swap any further}
+			return 3
+		}
+
+		# Is the partner in our line of sight? #
+		if {![::cpbs::inRange $user $target]} {
+			# Apparently not #
+			[set fd]::puts C {([S] The target is not in a safe range!}
+			return 3
+		}
+
+		# Is the partner in their own body? #
+		if {[::cpbs::get current $target] != [::cpbs::get original $target]} {
+			# Nuh-uh #
+			[set fd]::puts C {([S] The target is not allowed to swap any further}
+			return 3
+		}
+
+		::cpbs::set ask $user $target
+
+		# Is the target aware? #
+		if {[::cpbs::get ask $target] == $user} {
+			foreach u [list $user $target] {
+				[[set u]::get fd]::puts C [format {([S] You swap bodies with %s} [::cpbs::get ask $u]]
+				[[set u]::get fd]::puts C {([S] Warning: Severe desynchronization is to be expected!}
+			}
+
+			if {![::cpbs::swap $user $target]} {
+				[[set user]::get fd]::puts C {([S] Malfunction - unable to swap!}
+				putlog [format {[CPBS] WARNING: Unresolvable pair -- %s (Cur: %s) << >> %s (Cur: %s)} $user [get current $user] [get current $user] [get current [get current $user]]]
+				return 3
+			}
+		} else {
+			::cpbs::set by $target $user
+			[set fd]::puts C [format {([S] Your request has been sent to %s} [[set target]::get name]]
+			[[set target]::get fd]::puts C [format {([S] %s wants to swap bodies with you. To accept (at your own risk!) type `swap and to decline type `reject. You can always type `return while swapped to forcibly return to your original body.} [[set user]::get name]]
+			return 3
+		}
+	}
+
+	return 3
+}
+
+
+###--# quit #--###
+proc ::cpbs::trap::quit {fd} {
+	set user [[set fd]::get user]
+
+	# Is the bugger in his own body? #
+	if {[::cpbs::get current] != $user} {
+		set target [::cmap::get current $user]
+
+		# How far is he? #
+		if {![::cmap::mapMatch $user $target]} {
+			# We're in deep trouble.. He can't return! #
+			[[set target]::get fd]::puts C [format {[S] Warning: %s}]
+		}
+
+	}
+
+	return 0
+}
+
+
+###--# link #--###
+proc ::cpbs::trap::link {} {
+	::furc::hook::add 2 C RAW  ::cpbs::trap::raw
+	::furc::hook::add 1 C QUIT ::cpbs::trap::quit
+	::furc::hook::add 1 C DISC ::cpbs::trap::quit
+	::furc::hook::add 1 S DISC ::cpbs::trap::quit
+}
+
+proc ::cpbs::trap::unlink {} {
+	::furc::hook::del C {RAW  ::cpbs::trap::raw}
+	::furc::hook::del C {QUIT ::cpbs::trap::quit}
+	::furc::hook::del C {DISC ::cpbs::trap::quit}
+	::furc::hook::del S {DISC ::cpbs::trap::quit}
+}
+
+
+########################################################
+if {![info exists ::furc::version]} {
+	::cpis::cleanup
+	error {CPBS Error - CrystalProxy was not found!}
+} elseif {![info exists ::cpdb::version]} {
+	::cpis::cleanup
+	error {CPBS Error - DataBase module was not found!}
+} else {
+	scan [set ::furc::version] {%d.%d.%d} major minor bug
+	if {($major < 2) || ($minor < 1)} {
+		::cpis::cleanup
+		error [format {CPBS Error - CrystalProxy version inconsistency: %s (Needed 2.1.0+)} [set ::furc::version]]
+	} else {
+		# Safety lock #
+		if {$::cpbs::fuse} {
+			::cpbs::trap::link
+		}
+	}
+}
+### END OF MODULE ######################################

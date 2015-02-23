@@ -1,0 +1,152 @@
+<<-= furc_proxy.tcl =->>
+
+The core system consists of 5 modules:
+    convert - Various conversion functions
+    user    - User database management module
+    fd      - File Descriptor (socket) management module
+    hand    - Server-Client data handlers and hook executors
+    hook    - Hook management module
+
+In addition to the modules, there are two functions the core
+provides:
+    cleanup {} - Frees all the namespaces/functions owned by the system
+    version {} - Returns a version as a kind of existence check
+
+
+<<-= CONVERT module (::furc::convert) =->>
+
+    atoi      {char}      - ASCII character->integer conversion
+    itoa      {int}       - Integer->ASCII character conversion
+    stoi      {string}    - base64 character pair->integer conversion
+    itos      {int}       - integer->base64 character pair conversion
+    dir       {src dst}   - Numeric coord pair->direction number conversion
+    dir2sign  {dir}       - Conversion from a direction number into a kind of "arrow" sign
+
+<<-= USER module (::furc::user) =->>
+
+    add       {}          - Creates and initializes a new blank user record
+    del       {user}      - Purges a specific user record
+    list      {}          - Lists all the existing user records
+    exists    {user}      - Verifies user record's existence
+
+    ---[RECORD-WIDE FUNCTIONS]-------------------------------------------
+
+    del       {}          - Purges the current user record
+    set       {var value} - Sets a local variable for the current user
+    get       {var}       - Gets a value from a local variable
+    unset     {var}       - Purges a specific local variable
+    exists    {}          - Always returns 1 - inner existence check
+
+<<-= FD module (::furc::fd) =->>
+
+    add       {}          - Create and initialize a new FD record
+    del       {fd}        - Purges a specific FD record
+    list      {}          - Lists all the existing FD records
+    find      {idx}       - Find a first related record to an IDX
+    exists    {fd}        - Verifies FD record's existence
+    broadcast {dest data} - Broadcasts to all existing Server or Client FDs
+    
+    ---[RECORD-WIDE FUNCTIONS]-------------------------------------------
+
+    puts      {dest data} - Sends data to a specific Client or Server entry
+    del       {}          - Purges the current FD record
+    set       {var value} - Sets a local variable for the current FD
+    get       {var}       - Gets a value from a local variable
+    unset     {var}       - Purges a specific local variable
+    hfunc:add {func}      - Adds a handler function to be executed each time this FD gets something
+    hfunc:del {func}      - Removes a function from the handler list
+
+<<-= HAND module (::furc::hand) =->>
+
+    listen    {idx}         - Handle incoming connections
+    data      {idx data}    - The main data handler for every file descriptor
+    client    {fd idx data} - Client-side file descriptor handler
+    server    {fd idx data} - Server-side file descriptor handler
+
+<<-= HOOK module (::furc::hook) =->>
+
+    add       {side hook [function]} - Adds a hook to the list or lists all the available ones
+    del       {side hook}            - Removes a hook (or all hooks for specific function)
+    find      {side func}            - Finds a hook entry for a specific function
+    list      {side}                 - Lists all the available hook for either Client or Server side
+
+
+<<-= Hooks and their function formats =->>
+
+    SERVER-SIDE HOOKS
+
+    CAMERA - Tracks camera movement instructions from the server
+             {fd src dst dir} --- Direction number
+               |  |   `---------- Destination coordinates (numeric)
+	       |  `-------------- Source coordinates (numeric)
+	       `----------------- File descriptor record
+
+    DISC - Tracks disconnection of the server
+             {fd} --------------- File descriptor record
+
+    LOOK - Tracks the colormap/name returned by the LOOK request (l)
+             {fd colormap name} - Name of the character
+	       |  `-------------- Colormap of the character
+	       `----------------- File descriptor record
+
+    MAP - Tracks map change instructions form the server
+             {fd mapfile} ------- Filename of the new map
+	       `----------------- File descriptor record
+
+    MOVE - Tracks motion of the characters
+             {fd colormap src dst dir} - Direction number
+	       |  |        |   `-------- Destination coordinates (numeric)
+	       |  |        `------------ Source coordinates (numeric)
+	       |  `--------------------- Colormap
+	       `------------------------ File descriptor record
+
+    MSG - Tracks all the system messages from the server (()
+             {fd message} ------- System message content
+	       `----------------- File descriptor record
+
+    NOTIFY - Tracks notification announcements (positive AND negative)
+             {fd name state} ---- Online state (boolean)
+	       |  `-------------- Name of the user
+	       `----------------- File descriptor record
+
+    SPAWN - Tracks spawn information (<)
+             {fd colormap coord frame} - Frame number
+	       |  |        `------------ Spawn coordinates (numeric)
+	       |  `--------------------- Colormap of the spawned character
+	       `------------------------ File descriptor record
+
+    RAW - Tracks raw data from the server
+             {fd data} ---------- Raw information
+	       `----------------- File descriptor record
+
+
+    CLIENT-SIDE HOOKS
+    
+    ACT   - [Grouped] Tracks emotion (action) from the client
+    SAY   - [Grouped] Tracks the normal said data
+    SHOUT - [Grouped] Tracks the shout (- prefixed) data
+             {fd data} ---------- Content of the command
+	       `----------------- File descriptor record
+
+    DISC - Tracks disconnection of the client
+             {fd} --------------- File descriptor record
+
+    GOMAP - Tracks the GOMAP requests
+             {fd destination} --- Destination character
+	       `----------------- File descriptor record
+
+    MOVE - Tracks client's movement requests
+             {fd dir} ----------- Direction number
+	       `----------------- File descriptor record
+
+    WHISPER - Tracks whisper commands coming from the client
+             {fd target message} - Message itself
+	       |  `--------------- Target name of the message
+	       `------------------ File descriptor record
+
+    QUIT - Tracks quit requests coming form the client
+             {fd} ---------------- File descriptor record
+
+    RAW - Tracks raw data from the client
+             {fd data} ---------- Raw information
+	       `----------------- File descriptor record
